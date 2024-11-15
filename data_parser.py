@@ -1,5 +1,5 @@
 import asyncio
-
+import fake_useragent
 import aiohttp
 import json
 from bs4 import BeautifulSoup
@@ -25,7 +25,7 @@ class Student:
 
 class DataScrapper:
     institutes = {
-        1: "Институт авиации, наземного транспорта и энергетики", # отделение СПО ТК 8
+        1: "Институт авиации, наземного транспорта и энергетики",  # отделение СПО ТК 8
         2: "Факультет физико-математический",
         3: "Институт автоматики и электронного приборостроения",
         4: "Институт компьютерных технологий и защиты информации",  # отделение СПО КИТ 4
@@ -33,13 +33,19 @@ class DataScrapper:
         6: "Институт инженерной экономики и предпринимательства"
     }
     headers = {
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
         'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Accept-Encoding': 'gzip, deflate, br'
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control:': 'max-age=0'
     }
+    students = []
+    exception_groups = []
 
-    def __init__(self):
-        ...
+    def __init__(self, connection_timeout, max_pool_size, time_delta):
+        self.connection_timeout = connection_timeout
+        self.max_pool_size = max_pool_size
+        self.time_delta = time_delta
 
     async def _get_groups(self, session) -> Group:
         url = "https://kai.ru/raspisanie"
@@ -54,66 +60,103 @@ class DataScrapper:
             "p_p_col_count": 1
         }
 
-        async with session.get(url=url, headers=self.headers, timeout=7, params=params) as response:  # type: aiohttp.ClientResponse
-            groups_data_str = await response.text()
-            groups_data = json.loads(groups_data_str)
+        response = await session.get(url=url, headers=self.headers, params=params)
+        groups_data_str = await response.text()
+        groups_data = json.loads(groups_data_str)
 
-            groups = []
-            for group_data in groups_data:
-                institute_num = 1 if group_data['group'].startswith('8') else group_data['group'][0]
-                institute_num = int(institute_num)
-                groups.append(
-                    Group(
-                        institute=self.institutes[institute_num],
-                        institute_num=institute_num,
-                        course=group_data['group'][1],
-                        group_id=group_data['id'],
-                        group=group_data['group']
-                    )
+        groups = []
+        for group_data in groups_data:
+            institute_num = 1 if group_data['group'].startswith('8') else group_data['group'][0]
+            institute_num = int(institute_num)
+            groups.append(
+                Group(
+                    institute=self.institutes[institute_num],
+                    institute_num=institute_num,
+                    course=group_data['group'][1],
+                    group_id=group_data['id'],
+                    group=group_data['group']
                 )
-            return groups
+            )
+        return groups
+
+    def _get_group_chunks(self, groups):
+        group_chunks = []
+        group_chunk = []
+        for group in groups:
+            group_chunk.append(group)
+            if (len(group_chunk) == self.max_pool_size) or (groups[-1] == group):
+                group_chunks.append(tuple(group_chunk))
+                group_chunk = []
+        return group_chunks
 
     async def _get_students(self, session, group) -> Student:
-        url = f"https://kai.ru/infoClick/-/info/group"
+        url = "https://kai.ru/infoClick/-/info/group"
         params = {
             "id": group.group_id,
             "name": group.group
         }
+        headers = self.headers
+        user_agent = fake_useragent.UserAgent()
+        headers['User-Agent'] = user_agent.random
 
-        async with session.get(url=url, headers=self.headers, timeout=7, params=params) as response:  # type: aiohttp.ClientResponse
-            # response.encoding = 'utf-8'
+        try:
+            response = await session.get(url=url, headers=headers, params=params)
             group_page = await response.text()
-            soup = BeautifulSoup(group_page, "lxml")
-            table = soup.find("tbody")
-            trows = table.find_all("tr")
+            soup = BeautifulSoup(group_page, "html.parser")
 
-            students = []
+            table = soup.find("tbody")
+            if table is None:
+                alert = soup.find("div", class_="alert alert-info")
+                if alert is None:
+                    print("table tag is NoneType, why?", group.group)
+                    await self._student_parsing(session, self.exception_groups)
+                    return
+                else:
+                    print(group.group, "is", alert.text)
+                    return
+
+            trows = table.find_all("tr")
             for trow in trows:
                 tcolumns = trow.find_all("td")
                 student_column = tcolumns[1]
                 leader = True if student_column.find("span") is not None else False
                 student = student_column.find(text=True, recursive=False).get_text(strip=True)
 
-                students.append(
+                self.students.append(
                     Student(
                         group=group,
                         student=student,
                         leader=leader
                     )
                 )
-            for student in students:
-                print(student.__str__())
-            return students
+        except asyncio.TimeoutError:
+            self.exception_groups.append(group)
+            print(f"TimeoutError in group: id({group.group_id}) group({group.group})")
+            print("TimeoutError count:", len(self.exception_groups))
+            print()
+
+    async def _student_parsing(self, session, groups):
+        self.exception_groups = []
+        group_chunks = self._get_group_chunks(groups)
+        print("Start students parsing")
+        tasks = []
+        for chunk in group_chunks:
+            for group in chunk:
+                task = self._get_students(session, group)
+                tasks.append(asyncio.create_task(task))
+            print("Starting group_chunks: ", [group.group for group in chunk])
+            await asyncio.gather(*tasks)
+            print("Current students: ", len(self.students))
+            await asyncio.sleep(self.time_delta)
+            print()
+        print("End students parsing")
+        print()
+        await asyncio.sleep(3)
+        if self.exception_groups:
+            await self._student_parsing(session, self.exception_groups)
 
     async def parse_data(self):
-        async with aiohttp.ClientSession(trust_env=True) as session:
+        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=self.connection_timeout)) as session:
             groups = await self._get_groups(session)
-
-            tasks = []
-            for group in groups:
-                tasks.append(asyncio.create_task(self._get_students(session, group)))
-                await asyncio.sleep(0.01)
-                if len(tasks) >= 10:
-                    break
-            print("start completing tasks")
-            await asyncio.gather(*tasks)
+            await self._student_parsing(session, groups)
+            return self.students

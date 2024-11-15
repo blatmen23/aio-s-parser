@@ -20,9 +20,16 @@ class Database:
     name: str
 
 @dataclass
+class Parser:
+    connection_timeout: float
+    max_pool_size: int
+    time_delta: float
+
+@dataclass
 class Config:
     tg_bot: TgBot
     database: Database
+    parser: Parser
 
 
 def load_config() -> Config:
@@ -37,5 +44,10 @@ def load_config() -> Config:
             user=getenv('DB_USER'),
             password=getenv('DB_PASSWORD'),
             name=getenv('DB_NAME')
+        ),
+        parser=Parser(
+            connection_timeout=float(getenv('CONNECTION_TIMEOUT')),
+            max_pool_size=int(getenv('MAX_POOL_SIZE')),
+            time_delta=float(getenv('TIME_DELTA'))
         )
     )
