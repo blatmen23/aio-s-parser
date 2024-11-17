@@ -74,7 +74,7 @@ class DataScrapper:
             raise "Exit from aio-s-parser"
 
         groups_data_str = await response.text()
-        groups_data = json.loads(groups_data_str)  # [0:5:1]
+        groups_data = json.loads(groups_data_str)[0:10:1]
 
         for group_data in groups_data:
             institute_num = "1" if group_data['group'].startswith('8') else group_data['group'][0]
@@ -148,8 +148,6 @@ class DataScrapper:
             print("TimeoutError count:", len(self.exception_groups))
             await asyncio.sleep(3)
             print("3 seconds sleeping because TimeoutError")
-            print()
-
     async def _student_parsing(self, session, groups):
         self.exception_groups = []
 
