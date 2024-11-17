@@ -17,7 +17,7 @@ class Database:
     port: int
     user: str
     password: str
-    name: str
+    database: str
 
 @dataclass
 class Parser:
@@ -43,7 +43,7 @@ def load_config() -> Config:
             port=int(getenv('DB_PORT')),
             user=getenv('DB_USER'),
             password=getenv('DB_PASSWORD'),
-            name=getenv('DB_NAME')
+            database=getenv('DB_NAME')
         ),
         parser=Parser(
             connection_timeout=float(getenv('CONNECTION_TIMEOUT')),

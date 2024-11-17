@@ -6,12 +6,16 @@ from bs4 import BeautifulSoup
 from dataclasses import dataclass
 
 @dataclass
-class Group:
+class Institute:
     institute: str
     institute_num: int
+
+@dataclass
+class Group:
+    institute: Institute
     course: str
-    group_id: int
     group: str
+    group_id: str
 
 @dataclass
 class Student:
@@ -24,7 +28,7 @@ class Student:
 
 
 class DataScrapper:
-    institutes = {
+    kai_institutes = {
         1: "Институт авиации, наземного транспорта и энергетики",  # отделение СПО ТК 8
         2: "Факультет физико-математический",
         3: "Институт автоматики и электронного приборостроения",
@@ -39,7 +43,10 @@ class DataScrapper:
         'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control:': 'max-age=0'
     }
-    students = []
+    students: list[Student] = []
+    groups: list[Group] = []
+    institutes: list[Institute] = [Institute(institute=value, institute_num=key) for key, value in kai_institutes.items()]
+
     exception_groups = []
 
     def __init__(self, connection_timeout, max_pool_size, time_delta):
@@ -60,24 +67,29 @@ class DataScrapper:
             "p_p_col_count": 1
         }
 
-        response = await session.get(url=url, headers=self.headers, params=params)
-        groups_data_str = await response.text()
-        groups_data = json.loads(groups_data_str)
+        try:
+            response = await session.get(url=url, headers=self.headers, params=params)
+        except asyncio.TimeoutError:
+            print("TimeoutError in get_groups query")
+            raise "Exit from aio-s-parser"
 
-        groups = []
+        groups_data_str = await response.text()
+        groups_data = json.loads(groups_data_str)  # [0:5:1]
+
         for group_data in groups_data:
-            institute_num = 1 if group_data['group'].startswith('8') else group_data['group'][0]
+            institute_num = "1" if group_data['group'].startswith('8') else group_data['group'][0]
             institute_num = int(institute_num)
-            groups.append(
+            self.groups.append(
                 Group(
-                    institute=self.institutes[institute_num],
-                    institute_num=institute_num,
+                    institute=Institute(
+                        institute=self.kai_institutes[institute_num],
+                        institute_num=institute_num
+                    ),
                     course=group_data['group'][1],
-                    group_id=group_data['id'],
-                    group=group_data['group']
+                    group=group_data['group'],
+                    group_id=group_data['id']
                 )
             )
-        return groups
 
     def _get_group_chunks(self, groups):
         group_chunks = []
@@ -109,7 +121,8 @@ class DataScrapper:
                 alert = soup.find("div", class_="alert alert-info")
                 if alert is None:
                     print("table tag is NoneType, why?", group.group)
-                    await self._student_parsing(session, self.exception_groups)
+                    self.exception_groups.append(group)
+                    # await self._student_parsing(session, )
                     return
                 else:
                     print(group.group, "is", alert.text)
@@ -133,12 +146,14 @@ class DataScrapper:
             self.exception_groups.append(group)
             print(f"TimeoutError in group: id({group.group_id}) group({group.group})")
             print("TimeoutError count:", len(self.exception_groups))
+            await asyncio.sleep(3)
+            print("3 seconds sleeping because TimeoutError")
             print()
 
     async def _student_parsing(self, session, groups):
         self.exception_groups = []
+
         group_chunks = self._get_group_chunks(groups)
-        print("Start students parsing")
         tasks = []
         for chunk in group_chunks:
             for group in chunk:
@@ -149,14 +164,19 @@ class DataScrapper:
             print("Current students: ", len(self.students))
             await asyncio.sleep(self.time_delta)
             print()
-        print("End students parsing")
-        print()
-        await asyncio.sleep(3)
+
         if self.exception_groups:
+            print("Recursion parsing:")
+            await asyncio.sleep(3)
             await self._student_parsing(session, self.exception_groups)
 
     async def parse_data(self):
+        """
+        :return: (institutes[Institute], groups[Group], students[Student])
+        """
         async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=self.connection_timeout)) as session:
-            groups = await self._get_groups(session)
-            await self._student_parsing(session, groups)
-            return self.students
+            print("Start students parsing")
+            await self._get_groups(session)
+            await self._student_parsing(session, self.groups)
+            print("End students parsing")
+            return self.institutes, self.groups, self.students
