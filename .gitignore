@@ -2,4 +2,5 @@
 /.idea
 /venv
 .env
-testing.py
+reports/json/*
+reports/txt/*

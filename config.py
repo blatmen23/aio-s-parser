@@ -35,8 +35,8 @@ class Config:
 def load_config() -> Config:
     return Config(
         tg_bot=TgBot(
-            bot_token=getenv('BOT_TOKEN'),
-            admin_id=int(getenv('TG_CHAT_ADMIN'))
+            bot_token=getenv('TG_BOT_TOKEN'),
+            admin_id=getenv('TG_CHAT_ADMIN')
         ),
         database=Database(
             host=getenv('DB_HOST'),

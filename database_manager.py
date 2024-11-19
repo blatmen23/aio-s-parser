@@ -1,5 +1,7 @@
+import datetime
+
 from sqlalchemy import create_engine, MetaData, Connection, URL
-from sqlalchemy import Table, Column, Integer, String, SmallInteger, Boolean, Date, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, SmallInteger, Boolean, Date, JSON, Text, ForeignKey
 from sqlalchemy import select, insert, update, delete, case, and_
 from sqlalchemy.dialects import mysql
 from data_parser import Institute, Group, Student
@@ -7,12 +9,15 @@ from datetime import date
 
 
 class DatabaseManager:
+    reports_archive_table: Table
+    students_archive_table: Table
+
     institutes_table: Table
-    student_groups_table: Table
+    groups_table: Table
     students_table: Table
 
     old_institutes_table: Table
-    old_student_groups_table: Table
+    old_groups_table: Table
     old_students_table: Table
 
     def __init__(self, driver: str, username: str, password: str, host: str, port: int, db_name: str, echo: bool):
@@ -28,6 +33,26 @@ class DatabaseManager:
         self.metadata = MetaData()
 
     def create_tables(self):
+        self.reports_archive_table = Table(
+            "reports_archive",
+            self.metadata,
+            Column("report_id", Integer, primary_key=True, autoincrement=True),
+            Column("report_content", Text),
+            Column("report_json", JSON),
+            Column("report_date", Date, default=date.today().strftime("%Y-%m-%d"))
+        )
+
+        self.students_archive_table = Table(
+            "students_archive",
+            self.metadata,
+            Column("record_id", Integer, primary_key=True, autoincrement=True),
+            Column("institute", String(256)),
+            Column("course", SmallInteger),
+            Column("group_", String(16)),
+            Column("student", String(256)),
+            Column("record_date", Date, default=date.today().strftime("%Y-%m-%d"))
+        )
+
         self.institutes_table = Table(
             "institutes",
             self.metadata,
@@ -37,11 +62,11 @@ class DatabaseManager:
             Column("parse_date", Date, default=date.today().strftime("%Y-%m-%d"))
         )
 
-        self.student_groups_table = Table(
+        self.groups_table = Table(
             "groups_",
             self.metadata,
             Column("group_id", Integer, primary_key=True),
-            Column("group_", String(32)),
+            Column("group_", String(16)),
             Column("course", SmallInteger),
             Column("institute", ForeignKey("institutes.institute_id")),
             Column("parse_date", Date, default=date.today().strftime("%Y-%m-%d"))
@@ -66,11 +91,11 @@ class DatabaseManager:
             Column("parse_date", Date)
         )
 
-        self.old_student_groups_table = Table(
+        self.old_groups_table = Table(
             "old_groups_",
             self.metadata,
             Column("group_id", Integer, primary_key=True),
-            Column("group_", String(32)),
+            Column("group_", String(16)),
             Column("course", SmallInteger),
             Column("institute", ForeignKey("old_institutes.institute_id")),
             Column("parse_date", Date)
@@ -92,12 +117,12 @@ class DatabaseManager:
         with self.engine.begin() as conn:  # type: Connection
             # clear old tables
             conn.execute(delete(self.old_students_table))
-            conn.execute(delete(self.old_student_groups_table))
+            conn.execute(delete(self.old_groups_table))
             conn.execute(delete(self.old_institutes_table))
 
             # take data from tables
             institutes_table = conn.execute(select(self.institutes_table)).mappings().all()
-            student_groups_table = conn.execute(select(self.student_groups_table)).mappings().all()
+            student_groups_table = conn.execute(select(self.groups_table)).mappings().all()
             students_table = conn.execute(select(self.students_table)).mappings().all()
 
             # insert data in old tables
@@ -110,7 +135,7 @@ class DatabaseManager:
                      for institute in institutes_table]
                 ).compile(self.engine, mysql.dialect()))
             if student_groups_table:
-                conn.execute(insert(self.old_student_groups_table).values(
+                conn.execute(insert(self.old_groups_table).values(
                     [{"group_id": student_group['group_id'],
                       "group_": student_group['group_'],
                       "course": student_group['course'],
@@ -130,7 +155,7 @@ class DatabaseManager:
 
             # clear tables
             conn.execute(delete(self.students_table))
-            conn.execute(delete(self.student_groups_table))
+            conn.execute(delete(self.groups_table))
             conn.execute(delete(self.institutes_table))
 
     def insert_data(self, institutes_data: list[Institute], groups_data: list[Group], students_data: list[Student]):
@@ -148,7 +173,7 @@ class DatabaseManager:
                             "course": group.course,
                             "institute": group.institute.institute_num}
                            for group in groups_data]
-            groups_stmt = insert(self.student_groups_table).values(groups_data).compile(self.engine, mysql.dialect())
+            groups_stmt = insert(self.groups_table).values(groups_data).compile(self.engine, mysql.dialect())
             conn.execute(statement=groups_stmt)
 
             students_data = [{"student": student.student,
@@ -161,63 +186,112 @@ class DatabaseManager:
     def get_tables_difference(self):
         with self.engine.connect() as conn:
             new_groups = conn.execute(
-                select(self.student_groups_table, self.old_student_groups_table).select_from(
-                    self.student_groups_table).join(
-                    self.old_student_groups_table, isouter=True,
-                    onclause=self.student_groups_table.c.group_id == self.old_student_groups_table.c.group_id).where(
-                    self.old_student_groups_table.c.group_id == None).compile(self.engine, mysql.dialect()))
-            print(f"-- new groups{new_groups.fetchall()}\n\n")
+                select(self.groups_table).select_from(
+                    self.groups_table).join(
+                    self.old_groups_table, isouter=True,
+                    onclause=self.groups_table.c.group_id == self.old_groups_table.c.group_id).where(
+                    self.old_groups_table.c.group_id == None).compile(self.engine, mysql.dialect())).mappings().all()
+            print(f"-- new groups")
 
             deleted_groups = conn.execute(
-                select(self.student_groups_table, self.old_student_groups_table).select_from(
-                    self.old_student_groups_table).join(
-                    self.student_groups_table, isouter=True,
-                    onclause=self.student_groups_table.c.group_id == self.old_student_groups_table.c.group_id).where(
-                    self.student_groups_table.c.group_id == None).compile(self.engine, mysql.dialect()))
-            print(f"-- deleted groups{deleted_groups.fetchall()}\n\n")
+                select(self.old_groups_table).select_from(
+                    self.old_groups_table).join(
+                    self.groups_table, isouter=True,
+                    onclause=self.groups_table.c.group_id == self.old_groups_table.c.group_id).where(
+                    self.groups_table.c.group_id == None).compile(self.engine, mysql.dialect())).mappings().all()
+            print(f"-- deleted groups")
 
-            #             SELECT Students.student_id,
-            #                 Students.student_name,
-            #                 Students.student_group AS 'new_group_id',
-            #                 Students_tmp.student_group AS 'last_group_id',
-            #                 StudentGroups.group_name AS 'new_group_name',
-            #                 StudentGroups_tmp.group_name AS 'last_group_name'
-            #             FROM Students
-            #                 JOIN Students_tmp ON Students.student_id = Students_tmp.student_id
-            #                     AND Students.student_group <> Students_tmp.student_group
-            #                 JOIN StudentGroups ON Students.student_group = StudentGroups.group_id
-            #                 JOIN StudentGroups_tmp ON Students_tmp.student_group = StudentGroups_tmp.group_id;
-            group_changes = conn.execute(select(self.students_table, self.))
-            print(f"-- group changes {group_changes}")
+            group_changes = conn.execute(
+                select(self.students_table.c.student_id,
+                       self.students_table.c.student,
+                       self.students_table.c.student_group.label("new_group_id"),
+                       self.old_students_table.c.student_group.label("old_group_id"),
+                       self.groups_table.c.group_.label("new_group_"),
+                       self.old_groups_table.c.group_.label("old_group_")
+                       ).select_from(self.students_table
+                                     ).join(self.old_students_table, onclause=and_(
+                    self.students_table.c.student == self.old_students_table.c.student,
+                    self.students_table.c.student_group != self.old_students_table.c.student_group)
+                                            ).join(self.groups_table,
+                                                   onclause=self.students_table.c.student_group == self.groups_table.c.group_id
+                                                   ).join(self.old_groups_table,
+                                                          onclause=self.old_students_table.c.student_group == self.old_groups_table.c.group_id
+                                                          ).compile(self.engine, mysql.dialect())).mappings().all()
+            print(f"-- group changes")
 
             entered_students = conn.execute(
-                select(self.students_table, self.old_students_table).select_from(self.students_table).join(
+                select(self.students_table.c.student_id,
+                       self.students_table.c.student,
+                       self.students_table.c.student_group.label("group_id"),
+                       self.groups_table.c.group_,
+                       self.students_table.c.leader).select_from(self.students_table
+                                                                 ).join(
                     self.old_students_table, isouter=True,
                     onclause=and_(self.students_table.c.student == self.old_students_table.c.student,
-                                  self.students_table.c.student_group == self.old_students_table.c.student_group)
-                ).where(self.old_students_table.c.student_id == None).compile(self.engine, mysql.dialect()))
-            print(f"-- entered students{entered_students.fetchall()}\n\n")
+                                  self.students_table.c.student_group == self.old_students_table.c.student_group
+                                  )
+                ).join(self.groups_table,
+                       onclause=self.students_table.c.student_group == self.groups_table.c.group_id).where(
+                    self.old_students_table.c.student_id == None).compile(self.engine,
+                                                                          mysql.dialect())).mappings().all()
+            print(f"-- entered students")
 
             left_students = conn.execute(
-                select(self.students_table, self.old_students_table).select_from(self.old_students_table).join(
+                select(self.old_students_table, self.old_groups_table, self.old_institutes_table).select_from(
+                    self.old_students_table).join(
                     self.students_table, isouter=True,
                     onclause=and_(self.students_table.c.student == self.old_students_table.c.student,
                                   self.students_table.c.student_group == self.old_students_table.c.student_group)
-                ).where(self.students_table.c.student_id == None).compile(self.engine, mysql.dialect()))
-            print(f"-- left students {left_students.fetchall()}\n\n")
+                ).join(self.old_groups_table,
+                       onclause=self.old_groups_table.c.group_id == self.old_students_table.c.student_group
+                       ).join(self.old_institutes_table,
+                              onclause=self.old_groups_table.c.institute == self.old_institutes_table.c.institute_id
+                              ).where(self.students_table.c.student_id == None
+                                      ).compile(self.engine, mysql.dialect())).mappings().all()
+            print(f"-- left students")
 
             leader_status = conn.execute(
                 select(self.students_table, case(
                     (self.students_table.c.leader != 0, 'promotion'),
                     (self.students_table.c.leader == 0, 'demotion'),
-                ).label("status"), self.student_groups_table).select_from(self.students_table).
+                ).label("status"), self.groups_table).select_from(self.students_table).
                 join(
                     self.old_students_table,
                     onclause=and_(self.students_table.c.student == self.old_students_table.c.student,
                                   self.students_table.c.student_group == self.old_students_table.c.student_group,
                                   self.students_table.c.leader != self.old_students_table.c.leader)
-                ).join(self.student_groups_table,
-                       onclause=self.students_table.c.student_group == self.student_groups_table.c.group_id).compile(
-                    self.engine, mysql.dialect())
-            )
-            print(f"-- leader status {leader_status.fetchall()}\n\n")
+                ).join(self.groups_table,
+                       onclause=self.students_table.c.student_group == self.groups_table.c.group_id).compile(
+                    self.engine, mysql.dialect())).mappings().all()
+            print(f"-- leader status")
+
+            tables_difference = {
+                "new_groups": new_groups,
+                "deleted_groups": deleted_groups,
+                "group_changes": group_changes,
+                "entered_students": entered_students,
+                "left_students": left_students,
+                "leader_status": leader_status
+            }
+            return tables_difference
+
+    def archive_data(self, entered_students, left_students):
+        with self.engine.begin() as conn:  # type: Connection
+            if left_students:
+                conn.execute(insert(self.students_archive_table).values(
+                    [{"institute": student["institute"],
+                      "course": student["course"],
+                      "group_": student["group_"],
+                      "student": student["student"]}
+                     for student in left_students]
+                ).compile(self.engine, mysql.dialect()))
+
+            conn.execute(delete(self.students_archive_table).where(self.students_archive_table.c.student.in_([
+                student["student"] for student in entered_students
+            ])))
+
+    def save_reports(self, report_json: str, report_txt: str):
+        with self.engine.begin() as conn:  # type: Connection
+            conn.execute(insert(self.reports_archive_table
+                                ).values(report_content=report_txt, report_json=report_json,
+                                         report_date=date.today().strftime("%Y-%m-%d")).compile(self.engine, mysql.dialect()))
