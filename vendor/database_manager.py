@@ -1,13 +1,14 @@
-import datetime
+import os
 
 from sqlalchemy import create_engine, MetaData, Connection, URL
 from sqlalchemy import Table, Column, Integer, String, SmallInteger, Boolean, Date, JSON, Text, ForeignKey
 from sqlalchemy import select, insert, update, delete, case, and_
 from sqlalchemy.dialects import mysql
-from data_parser import Institute, Group, Student
+from vendor.data_parser import Institute, Group, Student
 from datetime import date
 
-
+from os import mkdir
+import json
 class DatabaseManager:
     reports_archive_table: Table
     students_archive_table: Table
@@ -20,7 +21,7 @@ class DatabaseManager:
     old_groups_table: Table
     old_students_table: Table
 
-    def __init__(self, driver: str, username: str, password: str, host: str, port: int, db_name: str, echo: bool):
+    def __init__(self, db_echo: bool, driver: str, username: str, password: str, host: str, port: int, db_name: str, echo: bool):
         self.engine = create_engine(
             url=URL.create(drivername=driver,
                            username=username,
@@ -28,7 +29,7 @@ class DatabaseManager:
                            host=host,
                            port=port,
                            database=db_name),
-            echo=echo
+            echo=db_echo
         )
         self.metadata = MetaData()
 
@@ -290,8 +291,17 @@ class DatabaseManager:
                 student["student"] for student in entered_students
             ])))
 
-    def save_reports(self, report_json: str, report_txt: str):
+    def save_reports(self, report_json: dict, report_txt: str):
+        with open("tmp.json", "w", encoding='utf-8') as file:
+            json.dump(report_json, file, ensure_ascii=False)
+
+        with open("tmp.json", "r", encoding='utf-8') as file:
+            report_json_str = json.load(file)
+
+        if os.path.exists("tmp.json"):
+            os.remove("tmp.json")
+
         with self.engine.begin() as conn:  # type: Connection
             conn.execute(insert(self.reports_archive_table
-                                ).values(report_content=report_txt, report_json=report_json,
+                                ).values(report_content=report_txt, report_json=report_json_str,
                                          report_date=date.today().strftime("%Y-%m-%d")).compile(self.engine, mysql.dialect()))

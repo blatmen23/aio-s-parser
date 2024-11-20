@@ -1,5 +1,4 @@
 import datetime
-import pprint
 
 
 class DataAnalyzer(object):
@@ -9,15 +8,16 @@ class DataAnalyzer(object):
     def _get_json_report(self, differences: dict, elapsed_time: float, total_groups: int, total_students: int):
         report_content = dict(differences)
         report_content["today"] = str(datetime.date.today())
-        report_content["time_difference"] = datetime.datetime.fromtimestamp(elapsed_time).strftime("%H:%M:%S")
-        report_content["total_groups"] = total_groups,
+        report_content["time_difference"] = datetime.datetime.utcfromtimestamp(elapsed_time).strftime("%H:%M:%S")
+        report_content["total_groups"] = total_groups
         report_content["total_new_groups"] = len(differences["new_groups"])
         report_content["total_deleted_groups"] = len(differences["deleted_groups"])
-        report_content["total_students"] = total_students,
+        report_content["total_students"] = total_students
         report_content["total_new_students"] = len(differences["entered_students"])
         report_content["total_deleted_students"] = len(differences["left_students"])
         report_content["total_leader_status"] = len(differences["leader_status"])
         report_content["total_group_changes"] = len(differences["group_changes"])
+
         print("The .json report is ready")
         return report_content
 
@@ -41,7 +41,7 @@ class DataAnalyzer(object):
                                        for student in differences["group_changes"]])
 
         report_content = (f'База студентов обновлена: {datetime.date.today()}\n'
-                          f'Затраченное время: {datetime.datetime.fromtimestamp(elapsed_time).strftime("%H:%M:%S")}\n'
+                          f'Затраченное время: {datetime.datetime.utcfromtimestamp(elapsed_time).strftime("%H:%M:%S")}\n'
                           f'Найдено групп: {total_groups}\n'
                           f'Новые группы: {len(differences["new_groups"])}\n'
                           f'{all_new_groups}\n\n'

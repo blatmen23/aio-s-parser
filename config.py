@@ -13,6 +13,7 @@ class TgBot:
 
 @dataclass
 class Database:
+    db_echo: bool
     host: str
     port: int
     user: str
@@ -24,6 +25,7 @@ class Parser:
     connection_timeout: float
     max_pool_size: int
     time_delta: float
+    recursion_limit: int
 
 @dataclass
 class Config:
@@ -39,6 +41,7 @@ def load_config() -> Config:
             admin_id=getenv('TG_CHAT_ADMIN')
         ),
         database=Database(
+            db_echo=bool(int(getenv('DB_ECHO'))),
             host=getenv('DB_HOST'),
             port=int(getenv('DB_PORT')),
             user=getenv('DB_USER'),
@@ -48,6 +51,7 @@ def load_config() -> Config:
         parser=Parser(
             connection_timeout=float(getenv('CONNECTION_TIMEOUT')),
             max_pool_size=int(getenv('MAX_POOL_SIZE')),
-            time_delta=float(getenv('TIME_DELTA'))
+            time_delta=float(getenv('TIME_DELTA')),
+            recursion_limit=int(getenv('RECURSION_LIMIT'))
         )
     )

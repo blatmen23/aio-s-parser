@@ -1,25 +1,22 @@
 import asyncio
 import time
-import pprint
-import data_analyzer
-import telegram_report
-import data_parser
-import database_manager
+from vendor import data_parser, data_analyzer, telegram_report, database_manager
 from config import load_config
 
 config = load_config()
 
-
 def main():
     start_time = time.time()
-    # data_scrapper = data_parser.DataScrapper(
-    #     connection_timeout=config.parser.connection_timeout,
-    #     max_pool_size=config.parser.max_pool_size,
-    #     time_delta=config.parser.time_delta
-    # )
-    # institutes_data, groups_data, students_data = asyncio.run(data_scrapper.parse_data())
+    data_scrapper = data_parser.DataScrapper(
+        connection_timeout=config.parser.connection_timeout,
+        max_pool_size=config.parser.max_pool_size,
+        time_delta=config.parser.time_delta,
+        recursion_limit=config.parser.recursion_limit
+    )
+    institutes_data, groups_data, students_data = asyncio.run(data_scrapper.parse_data())
 
     db_manager = database_manager.DatabaseManager(
+        db_echo=config.database.db_echo,
         driver="mysql+pymysql",
         username=config.database.user,
         password=config.database.password,
@@ -29,11 +26,11 @@ def main():
         echo=True
     )
     db_manager.create_tables()
-    # db_manager.prepare_tables()
+    db_manager.prepare_tables()
 
-    # db_manager.insert_data(institutes_data=institutes_data,
-    #                        groups_data=groups_data,
-    #                        students_data=students_data)
+    db_manager.insert_data(institutes_data=institutes_data,
+                           groups_data=groups_data,
+                           students_data=students_data)
 
     tables_difference = db_manager.get_tables_difference()
 
@@ -44,17 +41,15 @@ def main():
     print(f"Elapsed time: {elapsed_time}")
 
     analyzer = data_analyzer.DataAnalyzer()
-    report_json, report_txt = analyzer.get_reports(tables_difference, elapsed_time, 77, 777)
+    report_json, report_txt = analyzer.get_reports(tables_difference, elapsed_time, len(groups_data), len(students_data))
 
-    db_manager.save_reports(str(report_json), report_txt)
+    db_manager.save_reports(report_json, report_txt)
 
     rapporteur = telegram_report.Rapporteur(connection_timeout=config.parser.connection_timeout,
                                             tg_bot_token=config.tg_bot.bot_token)
     asyncio.run(rapporteur.send_reports(chat_id=config.tg_bot.admin_id,
-                                        report_json=str(report_json),
-                                        report_txt=report_txt,
-                                        caption="hello"))
-
+                                        report_json=report_json,
+                                        report_txt=report_txt))
 
 
 if __name__ == "__main__":

@@ -47,12 +47,14 @@ class DataScrapper:
     groups: list[Group] = []
     institutes: list[Institute] = [Institute(institute=value, institute_num=key) for key, value in kai_institutes.items()]
 
-    exception_groups = []
+    recursions_count = 0
+    exception_groups: list[Group] = []
 
-    def __init__(self, connection_timeout, max_pool_size, time_delta):
+    def __init__(self, connection_timeout, max_pool_size, time_delta, recursion_limit):
         self.connection_timeout = connection_timeout
         self.max_pool_size = max_pool_size
         self.time_delta = time_delta
+        self.recursion_limit = recursion_limit
 
     async def _get_groups(self, session) -> Group:
         url = "https://kai.ru/raspisanie"
@@ -69,27 +71,34 @@ class DataScrapper:
 
         try:
             response = await session.get(url=url, headers=self.headers, params=params)
-        except asyncio.TimeoutError:
-            print("TimeoutError in get_groups query")
-            raise "Exit from aio-s-parser"
+            groups_data_str = await response.text()
+            groups_data = json.loads(groups_data_str)[0:6:1]
 
-        groups_data_str = await response.text()
-        groups_data = json.loads(groups_data_str)[0:6:1]
-
-        for group_data in groups_data:
-            institute_num = "1" if group_data['group'].startswith('8') else group_data['group'][0]
-            institute_num = int(institute_num)
-            self.groups.append(
-                Group(
-                    institute=Institute(
-                        institute=self.kai_institutes[institute_num],
-                        institute_num=institute_num
-                    ),
-                    course=group_data['group'][1],
-                    group=group_data['group'],
-                    group_id=group_data['id']
+            for group_data in groups_data:
+                institute_num = "1" if group_data['group'].startswith('8') else group_data['group'][0]
+                institute_num = int(institute_num)
+                self.groups.append(
+                    Group(
+                        institute=Institute(
+                            institute=self.kai_institutes[institute_num],
+                            institute_num=institute_num
+                        ),
+                        course=group_data['group'][1],
+                        group=group_data['group'],
+                        group_id=group_data['id']
+                    )
                 )
-            )
+        except asyncio.TimeoutError:
+            print(f"Recursion parsing groups {self.recursions_count}:")
+            if self.recursions_count > self.recursion_limit:
+                raise f"The recursion limit has been reached: {self.recursions_count}"
+            else:
+                print("TimeoutError in get_groups query\n")
+                await asyncio.sleep(3)
+                self.recursions_count += 1
+                await self._get_groups(session)
+        else:
+            self.recursions_count = 0
 
     def _get_group_chunks(self, groups):
         group_chunks = []
@@ -144,10 +153,9 @@ class DataScrapper:
                 )
         except asyncio.TimeoutError:
             self.exception_groups.append(group)
-            print(f"TimeoutError in group: id({group.group_id}) group({group.group})")
-            print("TimeoutError count:", len(self.exception_groups))
-            await asyncio.sleep(3)
-            print("3 seconds sleeping because TimeoutError")
+
+            print(f"TimeoutError in group: id->{group.group_id} group->{group.group}")
+            print("get_students TimeoutError count:", len(self.exception_groups))
 
     async def _student_parsing(self, session, groups):
         self.exception_groups = []
@@ -160,13 +168,17 @@ class DataScrapper:
                 tasks.append(asyncio.create_task(task))
             print("Starting group_chunks: ", [group.group for group in chunk])
             await asyncio.gather(*tasks)
-            print("Current students: ", len(self.students))
+            print("Current students: ", len(self.students), "\n")
             await asyncio.sleep(self.time_delta)
-            print()
 
         if self.exception_groups:
-            print("Recursion parsing:")
+            print(f"Recursion parsing students {self.recursions_count}:")
+            if self.recursions_count > self.recursion_limit:
+                raise f"The recursion limit has been reached: {self.recursions_count}"
+            else:
+                print("TimeoutError in student_parsing query")
             await asyncio.sleep(3)
+            self.recursions_count += 1
             await self._student_parsing(session, self.exception_groups)
 
     async def parse_data(self):
