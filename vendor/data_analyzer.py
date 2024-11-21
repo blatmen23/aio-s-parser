@@ -1,4 +1,5 @@
 import datetime
+import pprint
 
 
 class DataAnalyzer(object):
@@ -7,6 +8,7 @@ class DataAnalyzer(object):
 
     def _get_json_report(self, differences: dict, elapsed_time: float, total_groups: int, total_students: int):
         report_content = dict(differences)
+
         report_content["today"] = str(datetime.date.today())
         report_content["time_difference"] = datetime.datetime.utcfromtimestamp(elapsed_time).strftime("%H:%M:%S")
         report_content["total_groups"] = total_groups

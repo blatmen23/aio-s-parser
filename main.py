@@ -41,7 +41,7 @@ def main():
     print(f"Elapsed time: {elapsed_time}")
 
     analyzer = data_analyzer.DataAnalyzer()
-    report_json, report_txt = analyzer.get_reports(tables_difference, elapsed_time, len(groups_data), len(students_data))
+    report_json, report_txt = analyzer.get_reports(tables_difference, elapsed_time, len([groups_data]), len([students_data]))
 
     db_manager.save_reports(report_json, report_txt)
 

@@ -72,7 +72,7 @@ class DataScrapper:
         try:
             response = await session.get(url=url, headers=self.headers, params=params)
             groups_data_str = await response.text()
-            groups_data = json.loads(groups_data_str)[0:6:1]
+            groups_data = json.loads(groups_data_str)  # [0:6:1]
 
             for group_data in groups_data:
                 institute_num = "1" if group_data['group'].startswith('8') else group_data['group'][0]

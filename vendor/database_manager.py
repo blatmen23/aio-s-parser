@@ -1,4 +1,5 @@
 import os
+import pprint
 
 from sqlalchemy import create_engine, MetaData, Connection, URL
 from sqlalchemy import Table, Column, Integer, String, SmallInteger, Boolean, Date, JSON, Text, ForeignKey
@@ -187,19 +188,29 @@ class DatabaseManager:
     def get_tables_difference(self):
         with self.engine.connect() as conn:
             new_groups = conn.execute(
-                select(self.groups_table).select_from(
+                select(self.groups_table.c.group_id,
+                       self.groups_table.c.group_,
+                       self.groups_table.c.course,
+                       self.groups_table.c.institute
+                ).select_from(
                     self.groups_table).join(
                     self.old_groups_table, isouter=True,
                     onclause=self.groups_table.c.group_id == self.old_groups_table.c.group_id).where(
                     self.old_groups_table.c.group_id == None).compile(self.engine, mysql.dialect())).mappings().all()
+            new_groups = list(map(dict, new_groups))
             print(f"-- new groups")
 
             deleted_groups = conn.execute(
-                select(self.old_groups_table).select_from(
+                select(self.old_groups_table.c.group_id,
+                       self.old_groups_table.c.group_,
+                       self.old_groups_table.c.course,
+                       self.old_groups_table.c.institute
+                ).select_from(
                     self.old_groups_table).join(
                     self.groups_table, isouter=True,
                     onclause=self.groups_table.c.group_id == self.old_groups_table.c.group_id).where(
                     self.groups_table.c.group_id == None).compile(self.engine, mysql.dialect())).mappings().all()
+            deleted_groups = list(map(dict, deleted_groups))
             print(f"-- deleted groups")
 
             group_changes = conn.execute(
@@ -218,6 +229,7 @@ class DatabaseManager:
                                                    ).join(self.old_groups_table,
                                                           onclause=self.old_students_table.c.student_group == self.old_groups_table.c.group_id
                                                           ).compile(self.engine, mysql.dialect())).mappings().all()
+            group_changes = list(map(dict, group_changes))
             print(f"-- group changes")
 
             entered_students = conn.execute(
@@ -235,10 +247,20 @@ class DatabaseManager:
                        onclause=self.students_table.c.student_group == self.groups_table.c.group_id).where(
                     self.old_students_table.c.student_id == None).compile(self.engine,
                                                                           mysql.dialect())).mappings().all()
+            entered_students = list(map(dict, entered_students))
             print(f"-- entered students")
 
             left_students = conn.execute(
-                select(self.old_students_table, self.old_groups_table, self.old_institutes_table).select_from(
+                select(self.old_students_table.c.student_id,
+                       self.old_students_table.c.student,
+                       self.old_students_table.c.leader,
+                       self.old_groups_table.c.group_id,
+                       self.old_groups_table.c.group_,
+                       self.old_groups_table.c.course,
+                       self.old_institutes_table.c.institute_id,
+                       self.old_institutes_table.c.institute,
+                       self.old_institutes_table.c.institute_num
+                ).select_from(
                     self.old_students_table).join(
                     self.students_table, isouter=True,
                     onclause=and_(self.students_table.c.student == self.old_students_table.c.student,
@@ -249,13 +271,19 @@ class DatabaseManager:
                               onclause=self.old_groups_table.c.institute == self.old_institutes_table.c.institute_id
                               ).where(self.students_table.c.student_id == None
                                       ).compile(self.engine, mysql.dialect())).mappings().all()
+            left_students = list(map(dict, left_students))
             print(f"-- left students")
 
             leader_status = conn.execute(
-                select(self.students_table, case(
+                select(self.students_table.c.student_id,
+                       self.students_table.c.student,
+                       self.students_table.c.student_group,
+                       self.students_table.c.leader, case(
                     (self.students_table.c.leader != 0, 'promotion'),
                     (self.students_table.c.leader == 0, 'demotion'),
-                ).label("status"), self.groups_table).select_from(self.students_table).
+                ).label("status"),
+                       self.groups_table.c.course,
+                       self.groups_table.c.group_).select_from(self.students_table).
                 join(
                     self.old_students_table,
                     onclause=and_(self.students_table.c.student == self.old_students_table.c.student,
@@ -264,6 +292,7 @@ class DatabaseManager:
                 ).join(self.groups_table,
                        onclause=self.students_table.c.student_group == self.groups_table.c.group_id).compile(
                     self.engine, mysql.dialect())).mappings().all()
+            leader_status = list(map(dict, leader_status))
             print(f"-- leader status")
 
             tables_difference = {
