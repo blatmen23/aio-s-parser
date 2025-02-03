@@ -2,7 +2,7 @@ import os
 import pprint
 
 from sqlalchemy import create_engine, MetaData, Connection, URL
-from sqlalchemy import Table, Column, Integer, String, SmallInteger, Boolean, Date, JSON, Text, ForeignKey
+from sqlalchemy import Table, Column, Integer, String, SmallInteger, Boolean, Date, JSON, Text, ForeignKey, text
 from sqlalchemy import select, insert, update, delete, case, and_
 from sqlalchemy.dialects import mysql
 from vendor.data_parser import Institute, Group, Student
@@ -187,6 +187,8 @@ class DatabaseManager:
 
     def get_tables_difference(self):
         with self.engine.connect() as conn:
+            conn.execute(text("SET SQL_BIG_SELECTS=1;"))
+
             new_groups = conn.execute(
                 select(self.groups_table.c.group_id,
                        self.groups_table.c.group_,
@@ -228,7 +230,7 @@ class DatabaseManager:
                                                    onclause=self.students_table.c.student_group == self.groups_table.c.group_id
                                                    ).join(self.old_groups_table,
                                                           onclause=self.old_students_table.c.student_group == self.old_groups_table.c.group_id
-                                                          ).compile(self.engine, mysql.dialect())).mappings().all()
+                ).compile(self.engine, mysql.dialect())).mappings().all()
             group_changes = list(map(dict, group_changes))
             print(f"-- group changes")
 

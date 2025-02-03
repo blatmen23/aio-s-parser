@@ -4,6 +4,7 @@ import aiohttp
 import json
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
+from aiohttp_socks import ProxyConnector
 
 @dataclass
 class Institute:
@@ -180,14 +181,37 @@ class DataScrapper:
             await asyncio.sleep(3)
             self.recursions_count += 1
             await self._student_parsing(session, self.exception_groups)
+            
+    def remove_duplicates(self):
+        unique_students = {}
+
+        for student in self.students:
+            if student.student not in unique_students:
+                unique_students[student.student] = student
+            else:
+                print(f"duplicate {student}")
+        self.students = list(unique_students.values())
+
+    def _remove_duplicates(self):
+        unique_students = {}
+        for student in self.students:
+            if student.student not in unique_students:
+                unique_students[student.student] = student
+            else:
+                print(f"duplicate {student}")
+        self.students = list(unique_students.values())
 
     async def parse_data(self):
         """
         :return: (institutes[Institute], groups[Group], students[Student])
         """
-        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=self.connection_timeout)) as session:
+        connector = ProxyConnector.from_url(url="socks5://sEefSS:RvzNqj@168.80.1.60:8000")
+
+        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=self.connection_timeout), connector=connector) as session:
             print("Start students parsing")
             await self._get_groups(session)
             await self._student_parsing(session, self.groups)
             print("End students parsing")
+            self._remove_duplicates()
+            print("Duplicates have been cleaned")
             return self.institutes, self.groups, self.students
