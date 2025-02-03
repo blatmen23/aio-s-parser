@@ -5,11 +5,15 @@ import json
 from bs4 import BeautifulSoup
 from dataclasses import dataclass
 from aiohttp_socks import ProxyConnector
+from config import load_config
+
+config = load_config()
 
 @dataclass
 class Institute:
     institute: str
     institute_num: int
+
 
 @dataclass
 class Group:
@@ -17,6 +21,7 @@ class Group:
     course: str
     group: str
     group_id: str
+
 
 @dataclass
 class Student:
@@ -46,7 +51,8 @@ class DataScrapper:
     }
     students: list[Student] = []
     groups: list[Group] = []
-    institutes: list[Institute] = [Institute(institute=value, institute_num=key) for key, value in kai_institutes.items()]
+    institutes: list[Institute] = [Institute(institute=value, institute_num=key) for key, value in
+                                   kai_institutes.items()]
 
     recursions_count = 0
     exception_groups: list[Group] = []
@@ -181,7 +187,7 @@ class DataScrapper:
             await asyncio.sleep(3)
             self.recursions_count += 1
             await self._student_parsing(session, self.exception_groups)
-            
+
     def remove_duplicates(self):
         unique_students = {}
 
@@ -205,9 +211,13 @@ class DataScrapper:
         """
         :return: (institutes[Institute], groups[Group], students[Student])
         """
-        connector = ProxyConnector.from_url(url="socks5://sEefSS:RvzNqj@168.80.1.60:8000")
+        # http://{USERNAME}:{PASSWORD}@{PROXY_ADDRESS}
+        purl = f"{config.proxy.type}://{config.proxy.username}:{config.proxy.password}@{config.proxy.proxy_address}"
+        connector = ProxyConnector.from_url(url=purl)
+        print("Proxy connector created")
 
-        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=self.connection_timeout), connector=connector) as session:
+        async with aiohttp.ClientSession(trust_env=True, timeout=aiohttp.ClientTimeout(total=self.connection_timeout),
+                                         connector=connector) as session:
             print("Start students parsing")
             await self._get_groups(session)
             await self._student_parsing(session, self.groups)
